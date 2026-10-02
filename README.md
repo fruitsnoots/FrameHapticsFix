@@ -7,6 +7,11 @@ Steam Frame controller haptics are normally too long and inconsistent. This is b
 
 This mod attempts to fix both of those. Works on my machine, anyway.
 
+There are no toggles or UI/settings.
+If the mod is installed, the patches are
+applied. You’ll be able to tell the
+difference as soon as you hit a note.
+
 Compatible with Tweaks55 and HapticsTweaker (actually makes their settings work correctly).
 
 ## Warnings/Notes
