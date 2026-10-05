@@ -14,7 +14,7 @@ difference as soon as you hit a note.
 
 Compatible with Tweaks55 and HapticsTweaker (actually makes their settings work correctly).
 
-*This mod has only been tested with 1.40.8 and 1.44.1.* Based on my observations of 1.45.2 vanilla, it seems likely that this mod will be unnecessary in future versions of Beat Saber (stick with Tweaks55 or HapticsTweaker).
+*This mod has only been tested with 1.40.8 and 1.44.1.* Based on my observations of 1.45.2 vanilla, it seems likely that this mod will be unnecessary in future versions of Beat Saber (Tweaks55 and HapticsTweaker will be enough on their own).
 
 ## Warnings/Notes
 
