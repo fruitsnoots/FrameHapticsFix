@@ -2,10 +2,16 @@
 using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
+using UnityEngine.XR;
 
 namespace FrameHapticsFix
 {
-    internal class Flag
+    /*
+     * The commented stuff below would be where I'd try to differentiate knuckles and frame controllers,
+     * but the frame controllers apparently report being index, so I'm just gonna leave that there
+     * in case I can figure it out later
+     */
+    /*internal class Flag
     {
         public static bool isProbablySteamFrame = false;
     }
@@ -42,30 +48,25 @@ namespace FrameHapticsFix
             // Should be a config, whatever.
             Flag.isProbablySteamFrame = true;
 
+            // Still need to let it identify the controller as a valve one (and use the knuckles haptics handler
+            // class), or it'll throw controller settings defaults off
             return true;
         }
-    }
+    }*/
 
-    [HarmonyPatch(typeof(UnityXRController), "UpdateHapticsHandler")]
-    static class UpdateHandlerPatch
+    // This function gets called a lot, and I guess is why they used a coroutine to try and break up the calls,
+    // but the coroutine runs at inconsistent times so I couldn't reliably reject repeats.
+    [HarmonyPatch(typeof(KnucklesUnityXRHapticsHandler), "TriggerHapticPulse")]
+    static class TriggerPulsePatch
     {
-        public static bool Prefix(UnityXRController __instance)
+        public static bool Prefix(KnucklesUnityXRHapticsHandler __instance, float strength, float duration)
         {
-            if (!Flag.isProbablySteamFrame)
-            {
-                return true;
-            }
-            
-            // The knuckles haptics code tries to break the haptic signals into 0.0125 second chunks,
-            // which seem to cause the frame controllers to trip up. Switch to default handler because
-            // that'll fire a leading full-duration impulse (and not double all the preset durations...)
-            if (!(__instance._hapticsHandler is DefaultUnityXRHapticsHandler))
-            {
-                Plugin.Log.Info("Creating DefaultUnityXRHapticsHandler");
-                __instance._hapticsHandler?.Dispose();
-                __instance._hapticsHandler = new DefaultUnityXRHapticsHandler(__instance.node);
-            }
-
+            InputDevice device = InputDevices.GetDeviceAtXRNode(__instance._node);
+            // I feel like I could just multiply duration by 2 here and have this not break knuckles controllers,
+            // and then HapticsTweaks/Tweaks55 could just function mostly normally. But then (a) I'd have to test
+            // that cause something could break, and (b) folks swapping between the controllers types would still
+            // need to make a mod adjustment every time they do.
+            device.SendHapticImpulse(0, strength, duration);
             return false;
         }
     }
@@ -106,7 +107,7 @@ namespace FrameHapticsFix
             // to keep impulsing
             if (data._channel == channel
                 && Math.Abs(data._amplitude - amplitude) < 0.01f
-                && Math.Abs(data._endTime - endTime) < 0.01f)
+                && Math.Abs(data._endTime - endTime) < 0.001f)
             {
                 // This is functionally the same impulse
                 //Plugin.Log.Debug("Rejected impulse data");
