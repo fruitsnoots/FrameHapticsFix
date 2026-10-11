@@ -147,7 +147,7 @@ namespace FrameHapticsFix
                 // Stop old haptics if expired
                 if (oldData != null && oldData._stopTime < Time.time)
                 {
-                    Plugin.Log.Info("Stopping expired haptics");
+                    //Plugin.Log.Info("Stopping expired haptics");
                     __instance._vrPlatformHelper.StopHaptics(key);
                     RunningRumbleData.RunningRumbles.Remove(key);
                 }
@@ -160,7 +160,7 @@ namespace FrameHapticsFix
                 // New discrete impulse always takes priority, regardless of what was previously running.
                 if (!selected.continuous)
                 {
-                    Plugin.Log.Info("New discrete haptics");
+                    //Plugin.Log.Info("New discrete haptics");
                     __instance._vrPlatformHelper.TriggerHapticPulse(
                         key, selected.endTime - Time.time, selected.strength, selected.frequency);
                     RunningRumbleData.RunningRumbles[key] = new RunningRumbleData(
@@ -173,7 +173,7 @@ namespace FrameHapticsFix
                 // If there wasn't anything running before, then there's nothing we need to compare.
                 if (oldData == null)
                 {
-                    Plugin.Log.Info("New continuous haptics with nothing to override");
+                    //Plugin.Log.Info("New continuous haptics with nothing to override");
                     __instance._vrPlatformHelper.TriggerHapticPulse(
                         key, 0.2f, selected.strength, selected.frequency);
                     RunningRumbleData.RunningRumbles[key] = new RunningRumbleData(
@@ -200,7 +200,7 @@ namespace FrameHapticsFix
                     // Re-fire a little early to avoid spin-down?
                     if ((oldData._autoStopTime-0.1f) < Time.time)
                     {
-                        Plugin.Log.Info("Re-firing existing continuous haptics");
+                        //Plugin.Log.Info("Re-firing existing continuous haptics");
                         __instance._vrPlatformHelper.TriggerHapticPulse(
                             key, 0.2f, oldData._rumbleData.strength, oldData._rumbleData.frequency);
                         oldData._autoStopTime = Time.time + 0.2f;
@@ -212,7 +212,7 @@ namespace FrameHapticsFix
                 // New impulse only beats old one for greater strength
                 if (selected.strength > oldData._rumbleData.strength)
                 {
-                    Plugin.Log.Info("New continuous haptics win on strength");
+                    //Plugin.Log.Info("New continuous haptics win on strength");
                     __instance._vrPlatformHelper.TriggerHapticPulse(
                         key, 0.2f, selected.strength, selected.frequency);
                     RunningRumbleData.RunningRumbles[key] = new RunningRumbleData(
@@ -225,107 +225,16 @@ namespace FrameHapticsFix
         }
     }
     
-    // Normally the haptics handler passes everything through a coroutine. Don't do that.
+    // Letting everything pass through the coroutine to use the extra layer of protection against too many pulses.
     [HarmonyPatch(typeof(KnucklesUnityXRHapticsHandler), "TriggerHapticPulse")]
     static class TriggerPulsePatch
     {
         public static bool Prefix(KnucklesUnityXRHapticsHandler __instance, float strength, float duration)
         {
-            InputDevice device = InputDevices.GetDeviceAtXRNode(__instance._node);
-            // I feel like I could just multiply duration by 2 here and have this not break knuckles controllers,
-            // and then HapticsTweaks/Tweaks55 could just function mostly normally. But then (a) I'd have to test
-            // that cause something could break, and (b) folks swapping between the controllers types would still
-            // need to make a mod adjustment every time they do.
-            device.SendHapticImpulse(0, strength, duration);
+            // Don't double the duration though, these controllers don't need it.
+            __instance._remainingTime = duration;
+            __instance._amplitude = Mathf.Clamp01(strength);
             return false;
         }
     }
-    
-    /*[HarmonyPatch(typeof(RumbleHapticFeedbackPlayer), "PlayHapticFeedback")]
-    static class LogHapticFeedback
-    {
-        public static bool Prefix(RumbleHapticFeedbackPlayer __instance, XRNode node, HapticPresetSO hapticPreset)
-        {
-            Plugin.Log.Info($"Playing Preset {hapticPreset.name}");
-            return true;
-        }
-    }
-
-    [HarmonyPatch(typeof(HapticFeedbackManager), "PlayHapticFeedback")]
-    static class LogPlayHapticFeedback
-    {
-        public static bool Prefix(HapticFeedbackManager __instance, XRNode node, HapticPresetSO hapticPreset)
-        {
-            Plugin.Log.Info(
-                $"Playing preset {hapticPreset.name}, {__instance._advancedHapticFeedbackPlayer.CanPlayHapticPreset(hapticPreset, node)}");
-            return true;
-        }
-    }*/
-
-    // This function gets called a lot, and I guess is why they used a coroutine to try and break up the calls,
-    // but the coroutine runs at inconsistent times so I couldn't reliably reject repeats.
-    /*[HarmonyPatch(typeof(KnucklesUnityXRHapticsHandler), "TriggerHapticPulse")]
-    static class TriggerPulsePatch
-    {
-        public static bool Prefix(KnucklesUnityXRHapticsHandler __instance, float strength, float duration)
-        {
-            InputDevice device = InputDevices.GetDeviceAtXRNode(__instance._node);
-            // I feel like I could just multiply duration by 2 here and have this not break knuckles controllers,
-            // and then HapticsTweaks/Tweaks55 could just function mostly normally. But then (a) I'd have to test
-            // that cause something could break, and (b) folks swapping between the controllers types would still
-            // need to make a mod adjustment every time they do.
-            device.SendHapticImpulse(0, strength, duration);
-            return false;
-        }
-    }
-
-    internal class ImpulseData
-    {
-        public static Dictionary<object, ImpulseData> Lookup = new Dictionary<object, ImpulseData>();
-
-        public float _endTime;
-        public uint _channel;
-        public float _amplitude;
-
-        public ImpulseData(uint channel, float amplitude, float endTime)
-        {
-            _endTime = endTime;
-            _channel = channel;
-            _amplitude = amplitude;
-        }
-    }
-
-    [HarmonyPatch(typeof(UnityEngine.XR.InputDevice), "SendHapticImpulse")]
-    static class HapticImpulsePatch
-    {
-        public static bool Prefix(UnityEngine.XR.InputDevice __instance, uint channel, float amplitude, float duration)
-        {
-            float endTime = Time.time + duration;
-
-            if (!(ImpulseData.Lookup.ContainsKey(__instance)))
-            {
-                ImpulseData.Lookup.Add(__instance, new ImpulseData(channel, amplitude, duration));
-                //Plugin.Log.Debug("Created impulse data");
-                return true;
-            }
-
-            ImpulseData data = ImpulseData.Lookup[__instance];
-
-            // Frame controllers don't like being told to vibrate too often apparently, so reject extra attempts
-            // to keep impulsing
-            if (data._channel == channel
-                && Math.Abs(data._amplitude - amplitude) < 0.01f
-                && Math.Abs(data._endTime - endTime) < 0.001f)
-            {
-                // This is functionally the same impulse
-                //Plugin.Log.Debug("Rejected impulse data");
-                return false;
-            }
-
-            ImpulseData newData = new ImpulseData(channel, amplitude, endTime);
-            ImpulseData.Lookup[__instance] = newData;
-            //Plugin.Log.Debug("Accepted new impulse");
-            return true;
-        }
-    }*/
 }
