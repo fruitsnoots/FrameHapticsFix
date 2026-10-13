@@ -82,16 +82,16 @@ namespace FrameHapticsFix
     {
         public static bool Prefix(RumbleHapticFeedbackPlayer __instance)
         {
-            // Original implementation frequently blasts _vrPlatformHelper.TriggerHapticPulse with new
-            // short pulses as long as continuous (i.e. saber clash, wall clash) items are active. This seems
-            // to happen every frame? In either case, simply rejecting new calls sometimes as being "the same"
-            // can mean we still keep getting blasted too much.
+            // The original implementation of UpdateRumbles regularly blasts the haptics handlers with new
+            // information. For discrete events (e.g. note cut), it'll update the handlers regularly with
+            // remaining duration, and continuous events (e.g. wall clash) keep updating it with new durations
+            // refreshed to 1/60th of a second. This seems to happen every frame?
             //
-            // The goal here is to just reduce the number of calls to TriggerHapticPulse as much as
-            // possible so the controller doesn't panic I guess. A big chunk of that is actively reducing
-            // the frequency with which we send new pulses for continuous events, which means overwriting
-            // the actual duration with a longer value (I'm selecting 0.25 seconds), and explicitly ending
-            // the pulse when it's expired on its real resolution.
+            // To clean up the inputs to the haptics handlers, this rewrite ensures that each discrete event
+            // only produces *one* TriggerHapticPulse call. Additionally, we reduce the frequency at which
+            // the haptics handlers get new information about continuous events (i.e. we only give them
+            // new duration info every 0.2 seconds), and just explicitly cancel the haptics when those are finished.
+            // That second bit was probably not necessary, in retrospect, but I already did it.
 
             // The _rumblesByNode dictionary mapping is (XRNode, (preset, RumbleData)).
             foreach (KeyValuePair<XRNode, Dictionary<object, RumbleHapticFeedbackPlayer.RumbleData>> item in __instance
@@ -154,7 +154,8 @@ namespace FrameHapticsFix
                 {
                     // Because the coroutine that actually sends the impulses is asynchronous (with a potentially
                     // delayed start), I don't want to send an explicit stop if the haptics event was discrete, as
-                    // doing so could truncate the actual impulse time.
+                    // doing so could truncate the actual impulse time, which might cause noticeable variations
+                    // for shorter events.
                     if (oldData._rumbleData.continuous)
                     {
                         //Plugin.Log.Info("Stopping expired haptics");
@@ -274,7 +275,8 @@ namespace FrameHapticsFix
 
         private static IEnumerator PatchedHapticsCoroutine(KnucklesUnityXRHapticsHandler __instance)
         {
-            InputDevice device = InputDevices.GetDeviceAtXRNode(__instance._node);
+            XRNode node = __instance._node;
+            InputDevice device = InputDevices.GetDeviceAtXRNode(node);
             // A minimum of 0.0125 seconds must pass between impulses, but to keep things a little more responsive
             // we can use a separate waiter to check for when we've actually received impulse info
             WaitForSecondsRealtime timeWaiter = new WaitForSecondsRealtime(0.0125f);
@@ -286,8 +288,14 @@ namespace FrameHapticsFix
                 
                 //Plugin.Log.Info($"Time diff {Time.time - TimerThing.Blah[__instance]}");
                 device.SendHapticImpulse(0u, __instance._amplitude, __instance._remainingTime);
-
-                __instance._remainingTime -= 0.0125f;
+                
+                // Consuming the entire remaining time in one single impulse prevents weird behavior for very small
+                // time values (think chain links configured to be like 0.02 seconds long)
+                //
+                // If you're wondering about whether our big chunks of continuous haptics will still stop when we want,
+                // don't worry about it, because the StopHaptics method sets the remaining time which will cause the
+                // condWaiter to be satisfied
+                __instance._remainingTime = 0f;
                 yield return timeWaiter;
             }
         }
