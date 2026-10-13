@@ -1,6 +1,8 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using HarmonyLib;
+using IPA.Utilities;
 using Libraries.HM.HMLib.VR;
 using UnityEngine;
 using UnityEngine.XR;
@@ -61,6 +63,10 @@ namespace FrameHapticsFix
             new Dictionary<XRNode, RunningRumbleData>();
 
         public RumbleHapticFeedbackPlayer.RumbleData _rumbleData = rumbleData;
+        // The following fields are only relevant to continuous haptics. Basically, we want to be able to stop haptics
+        // as fast as every 1/60th of a second, but we don't need to give the controller handler new durations that
+        // often (we use 0.2 second chunks)
+        
         // The endTime in the _rumbleData reference may be updated from under us, so track our own stop time values.
         // _stopTime: Will be set to 1/60th of a second in the future on every update. If we stop getting updates,
         //            we will stop the haptics directly.
@@ -76,8 +82,6 @@ namespace FrameHapticsFix
     {
         public static bool Prefix(RumbleHapticFeedbackPlayer __instance)
         {
-            // The _rumblesByNode dictionary mapping is (XRNode, (preset, RumbleData)).
-            //
             // Original implementation frequently blasts _vrPlatformHelper.TriggerHapticPulse with new
             // short pulses as long as continuous (i.e. saber clash, wall clash) items are active. This seems
             // to happen every frame? In either case, simply rejecting new calls sometimes as being "the same"
@@ -89,6 +93,7 @@ namespace FrameHapticsFix
             // the actual duration with a longer value (I'm selecting 0.25 seconds), and explicitly ending
             // the pulse when it's expired on its real resolution.
 
+            // The _rumblesByNode dictionary mapping is (XRNode, (preset, RumbleData)).
             foreach (KeyValuePair<XRNode, Dictionary<object, RumbleHapticFeedbackPlayer.RumbleData>> item in __instance
                          ._rumblesByNode)
             {
@@ -147,8 +152,15 @@ namespace FrameHapticsFix
                 // Stop old haptics if expired
                 if (oldData != null && oldData._stopTime < Time.time)
                 {
-                    //Plugin.Log.Info("Stopping expired haptics");
-                    __instance._vrPlatformHelper.StopHaptics(key);
+                    // Because the coroutine that actually sends the impulses is asynchronous (with a potentially
+                    // delayed start), I don't want to send an explicit stop if the haptics event was discrete, as
+                    // doing so could truncate the actual impulse time.
+                    if (oldData._rumbleData.continuous)
+                    {
+                        //Plugin.Log.Info("Stopping expired haptics");
+                        __instance._vrPlatformHelper.StopHaptics(key);
+                    }
+
                     RunningRumbleData.RunningRumbles.Remove(key);
                 }
                 
@@ -225,6 +237,12 @@ namespace FrameHapticsFix
         }
     }
     
+    /*internal class TimerThing
+    {
+        public static Dictionary<KnucklesUnityXRHapticsHandler, float> Blah =
+            new Dictionary<KnucklesUnityXRHapticsHandler, float>();
+    }*/
+    
     // Letting everything pass through the coroutine to use the extra layer of protection against too many pulses.
     [HarmonyPatch(typeof(KnucklesUnityXRHapticsHandler), "TriggerHapticPulse")]
     static class TriggerPulsePatch
@@ -234,7 +252,44 @@ namespace FrameHapticsFix
             // Don't double the duration though, these controllers don't need it.
             __instance._remainingTime = duration;
             __instance._amplitude = Mathf.Clamp01(strength);
+            //TimerThing.Blah[__instance] = Time.time;
             return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(KnucklesUnityXRHapticsHandler), MethodType.Constructor,
+        new Type[] { typeof(XRNode), typeof(MonoBehaviour) })]
+    static class KnuckleCtorPatch
+    {
+        public static bool Prefix(KnucklesUnityXRHapticsHandler __instance, XRNode node, MonoBehaviour coroutineRunner)
+        {
+            __instance.SetField("_node", node);
+            __instance.SetField("_coroutineRunner", coroutineRunner);
+            __instance._amplitude = 0f;
+            __instance._remainingTime = 0f;
+            __instance.SetField("_hapticsCoroutine",
+                coroutineRunner.StartCoroutine(PatchedHapticsCoroutine(__instance)));
+            return false;
+        }
+
+        private static IEnumerator PatchedHapticsCoroutine(KnucklesUnityXRHapticsHandler __instance)
+        {
+            InputDevice device = InputDevices.GetDeviceAtXRNode(__instance._node);
+            // A minimum of 0.0125 seconds must pass between impulses, but to keep things a little more responsive
+            // we can use a separate waiter to check for when we've actually received impulse info
+            WaitForSecondsRealtime timeWaiter = new WaitForSecondsRealtime(0.0125f);
+            WaitUntil condWaiter = new WaitUntil(() => (device.isValid && __instance._remainingTime > 0f));
+            while (true)
+            {
+                if (!(device.isValid && __instance._remainingTime > 0f))
+                    yield return condWaiter;
+                
+                //Plugin.Log.Info($"Time diff {Time.time - TimerThing.Blah[__instance]}");
+                device.SendHapticImpulse(0u, __instance._amplitude, __instance._remainingTime);
+
+                __instance._remainingTime -= 0.0125f;
+                yield return timeWaiter;
+            }
         }
     }
 }
