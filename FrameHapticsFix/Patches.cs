@@ -71,8 +71,8 @@ namespace FrameHapticsFix
         // _stopTime: Will be set to 1/60th of a second in the future on every update. If we stop getting updates,
         //            we will stop the haptics directly.
         public float _stopTime = stopTime;
-        // _autoStopTime: Will be set to 0.2 seconds in the future at the time we issue the haptic pulse (which
-        //                will also last 0.2 seconds). If we're still getting updated when this expires, we'll
+        // _autoStopTime: Can be set to e.g. 0.2 seconds in the future at the time we issue the haptic pulse (which
+        //                would also last 0.2 seconds). If we're still getting updated when this expires, we'll
         //                set off a new pulse.
         public float _autoStopTime = autoStopTime;
     }
@@ -80,6 +80,9 @@ namespace FrameHapticsFix
     [HarmonyPatch(typeof(RumbleHapticFeedbackPlayer), "UpdateRumbles")]
     static class UpdateRumblesPatch
     {
+        public const float StopTime = (1f / 60f);
+        public const float AutoStopTime = 0.2f;
+        
         public static bool Prefix(RumbleHapticFeedbackPlayer __instance)
         {
             // The original implementation of UpdateRumbles regularly blasts the haptics handlers with new
@@ -88,10 +91,10 @@ namespace FrameHapticsFix
             // refreshed to 1/60th of a second. This seems to happen every frame?
             //
             // To clean up the inputs to the haptics handlers, this rewrite ensures that each discrete event
-            // only produces *one* TriggerHapticPulse call. Additionally, we reduce the frequency at which
-            // the haptics handlers get new information about continuous events (i.e. we only give them
-            // new duration info every 0.2 seconds), and just explicitly cancel the haptics when those are finished.
-            // That second bit was probably not necessary, in retrospect, but I already did it.
+            // only produces *one* TriggerHapticPulse call. We can also reduce the frequency at which
+            // the haptics handlers get new information about continuous events (i.e. only giving them
+            // new duration info every 0.1-0.2 seconds), and just explicitly cancel the haptics when those are
+            // finished.
 
             // The _rumblesByNode dictionary mapping is (XRNode, (preset, RumbleData)).
             foreach (KeyValuePair<XRNode, Dictionary<object, RumbleHapticFeedbackPlayer.RumbleData>> item in __instance
@@ -188,9 +191,9 @@ namespace FrameHapticsFix
                 {
                     //Plugin.Log.Info("New continuous haptics with nothing to override");
                     __instance._vrPlatformHelper.TriggerHapticPulse(
-                        key, 0.2f, selected.strength, selected.frequency);
+                        key, AutoStopTime, selected.strength, selected.frequency);
                     RunningRumbleData.RunningRumbles[key] = new RunningRumbleData(
-                        selected, Time.time + 1f / 60f, Time.time + 0.2f);
+                        selected, Time.time + StopTime, Time.time + AutoStopTime);
                     continue;
                 }
                 
@@ -208,15 +211,15 @@ namespace FrameHapticsFix
                 // it as an update to the old data.
                 if (Math.Abs(selected.strength - oldData._rumbleData.strength) < 0.001f)
                 {
-                    oldData._stopTime = Time.time + (1f / 60f);
+                    oldData._stopTime = Time.time + StopTime;
                     
                     // Re-fire a little early to avoid spin-down?
                     if ((oldData._autoStopTime-0.1f) < Time.time)
                     {
                         //Plugin.Log.Info("Re-firing existing continuous haptics");
                         __instance._vrPlatformHelper.TriggerHapticPulse(
-                            key, 0.2f, oldData._rumbleData.strength, oldData._rumbleData.frequency);
-                        oldData._autoStopTime = Time.time + 0.2f;
+                            key, AutoStopTime, oldData._rumbleData.strength, oldData._rumbleData.frequency);
+                        oldData._autoStopTime = Time.time + AutoStopTime;
                     }
 
                     continue;
@@ -227,9 +230,9 @@ namespace FrameHapticsFix
                 {
                     //Plugin.Log.Info("New continuous haptics win on strength");
                     __instance._vrPlatformHelper.TriggerHapticPulse(
-                        key, 0.2f, selected.strength, selected.frequency);
+                        key, AutoStopTime, selected.strength, selected.frequency);
                     RunningRumbleData.RunningRumbles[key] = new RunningRumbleData(
-                        selected, Time.time + 1f / 60f, Time.time + 0.2f);
+                        selected, Time.time + StopTime, Time.time + AutoStopTime);
                     continue;
                 }
             }
@@ -258,9 +261,24 @@ namespace FrameHapticsFix
         }
     }
 
+    [HarmonyPatch(typeof(KnucklesUnityXRHapticsHandler), "StopHaptics")]
+    static class StopHapticsPatch
+    {
+        public static bool Prefix(KnucklesUnityXRHapticsHandler __instance)
+        {
+            // This method of stopping haptics immediately means that there's no actual minimum amount of time that
+            // a saber/wall clash haptic effect will stay in effect. Personally, I kind of like that it gives a
+            // whooshy vibe when passing sabers through each other. I also felt obligated to bust out the quest 3
+            // to compare the behavior and this is actually about consistent with how that feels.
+            __instance._remainingTime = 0;
+            InputDevices.GetDeviceAtXRNode(__instance._node).StopHaptics();
+            return false;
+        }
+    }
+
     [HarmonyPatch(typeof(KnucklesUnityXRHapticsHandler), MethodType.Constructor,
         new Type[] { typeof(XRNode), typeof(MonoBehaviour) })]
-    static class KnuckleCtorPatch
+    static class KnucklesHandlerConstructorPatch
     {
         public static bool Prefix(KnucklesUnityXRHapticsHandler __instance, XRNode node, MonoBehaviour coroutineRunner)
         {
@@ -291,10 +309,6 @@ namespace FrameHapticsFix
                 
                 // Consuming the entire remaining time in one single impulse prevents weird behavior for very small
                 // time values (think chain links configured to be like 0.02 seconds long)
-                //
-                // If you're wondering about whether our big chunks of continuous haptics will still stop when we want,
-                // don't worry about it, because the StopHaptics method sets the remaining time which will cause the
-                // condWaiter to be satisfied
                 __instance._remainingTime = 0f;
                 yield return timeWaiter;
             }
