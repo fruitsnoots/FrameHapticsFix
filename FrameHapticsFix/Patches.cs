@@ -307,9 +307,23 @@ namespace FrameHapticsFix
                 //Plugin.Log.Info($"Time diff {Time.time - TimerThing.Blah[__instance]}");
                 device.SendHapticImpulse(0u, __instance._amplitude, __instance._remainingTime);
                 
-                // Consuming the entire remaining time in one single impulse prevents weird behavior for very small
-                // time values (think chain links configured to be like 0.02 seconds long)
-                __instance._remainingTime = 0f;
+                // This bit is fine-tuning.
+                //
+                // If we *always* break the impulses up into .0125-second chunks, then the frame's motors end up
+                // having weird behaviors for short pulses. For example, a 0.025-second impulse feels shorter
+                // than a 0.02-second impulse, and an-0.03 second impulse feels like a double-vibration.
+                //
+                // However, for repeated long impulses (tested with the up-down notes with default haptics durations
+                // at 34 seconds into OST7's World Wide Web), some vibrations can get lost entirely. I know each cut
+                // is getting to this code.
+                //
+                // I speculate that the motors have spin-up and spin-down profiles that don't play nicely at
+                // these edges, so I'm handling different lengths differently.
+                if (__instance._remainingTime < 0.04f)
+                    __instance._remainingTime = 0f;
+                else
+                    __instance._remainingTime -= 0.0125f;
+                
                 yield return timeWaiter;
             }
         }
