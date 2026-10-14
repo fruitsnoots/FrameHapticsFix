@@ -57,31 +57,36 @@ namespace FrameHapticsFix
         }
     }*/
 
-    internal class RunningRumbleData(RumbleHapticFeedbackPlayer.RumbleData rumbleData, float stopTime, float autoStopTime)
+    internal class RunningRumbleData(RumbleHapticFeedbackPlayer.RumbleData rumbleData, float stopTime, float resubmitTime=0f, float resubmitDuration=0f)
     {
         public static Dictionary<XRNode, RunningRumbleData> RunningRumbles = 
             new Dictionary<XRNode, RunningRumbleData>();
 
         public RumbleHapticFeedbackPlayer.RumbleData _rumbleData = rumbleData;
-        // The following fields are only relevant to continuous haptics. Basically, we want to be able to stop haptics
-        // as fast as every 1/60th of a second, but we don't need to give the controller handler new durations that
-        // often (we use 0.2 second chunks)
-        
         // The endTime in the _rumbleData reference may be updated from under us, so track our own stop time values.
-        // _stopTime: Will be set to 1/60th of a second in the future on every update. If we stop getting updates,
-        //            we will stop the haptics directly.
+        // _stopTime: For discrete haptics, will be the normal expiration time. For continuous, will be set to 1/60th
+        //            of a second in the future on every update. If we stop getting updates, we use this stop the
+        //            haptics directly.
         public float _stopTime = stopTime;
-        // _autoStopTime: Can be set to e.g. 0.2 seconds in the future at the time we issue the haptic pulse (which
-        //                would also last 0.2 seconds). If we're still getting updated when this expires, we'll
-        //                set off a new pulse.
-        public float _autoStopTime = autoStopTime;
+        
+        // The following fields are only relevant to continuous haptics. Basically, we want to be able to stop haptics
+        // as fast as every 1/60th of a second, but we don't necessarily want to give the controller handler new
+        // impulses at that pace
+        // _resubmitTime: Can be set to e.g. 0.1 seconds in the future at the time we issue the haptic pulse.
+        //                The resubmit should probably be set to a lower value than _resubmitDuration to avoid
+        //                downtime in continuous haptics.
+        public float _resubmitTime = resubmitTime;
+        // _resubmitDuration: Can be set to e.g. 0.2 seconds in the future at the time we issue the haptic pulse (which
+        //                    would also last 0.2 seconds).
+        public float _resubmitDuration = resubmitDuration;
     }
 
     [HarmonyPatch(typeof(RumbleHapticFeedbackPlayer), "UpdateRumbles")]
     static class UpdateRumblesPatch
     {
         public const float StopTime = (1f / 60f);
-        public const float AutoStopTime = 0.2f;
+        public const float ResubmitTime = (1f / 60f);
+        public const float ResubmitDuration = 0.2f;
         
         public static bool Prefix(RumbleHapticFeedbackPlayer __instance)
         {
@@ -177,10 +182,9 @@ namespace FrameHapticsFix
                 if (!selected.continuous)
                 {
                     //Plugin.Log.Info("New discrete haptics");
+                    RunningRumbleData.RunningRumbles[key] = new RunningRumbleData(selected, selected.endTime);
                     __instance._vrPlatformHelper.TriggerHapticPulse(
                         key, selected.endTime - Time.time, selected.strength, selected.frequency);
-                    RunningRumbleData.RunningRumbles[key] = new RunningRumbleData(
-                        selected, selected.endTime, selected.endTime);
                     continue;
                 }
                 
@@ -190,17 +194,17 @@ namespace FrameHapticsFix
                 if (oldData == null)
                 {
                     //Plugin.Log.Info("New continuous haptics with nothing to override");
-                    __instance._vrPlatformHelper.TriggerHapticPulse(
-                        key, AutoStopTime, selected.strength, selected.frequency);
                     RunningRumbleData.RunningRumbles[key] = new RunningRumbleData(
-                        selected, Time.time + StopTime, Time.time + AutoStopTime);
+                        selected, Time.time + StopTime, Time.time + ResubmitTime, ResubmitDuration);
+                    __instance._vrPlatformHelper.TriggerHapticPulse(
+                        key, ResubmitDuration, selected.strength, selected.frequency);
                     continue;
                 }
                 
                 // New continuous impulse generally loses to still-playing discrete impulse. We do need to re-fire
                 // early to avoid spin-down, though, and admittedly in practice the error bars I'm using span
                 // an entire discrete preset.
-                if (!oldData._rumbleData.continuous && (oldData._autoStopTime-0.1f) > Time.time)
+                if (!oldData._rumbleData.continuous && oldData._stopTime > Time.time)
                 {
                     continue;
                 }
@@ -213,13 +217,13 @@ namespace FrameHapticsFix
                 {
                     oldData._stopTime = Time.time + StopTime;
                     
-                    // Re-fire a little early to avoid spin-down?
-                    if ((oldData._autoStopTime-0.1f) < Time.time)
+                    // Re-fire as needed
+                    if (oldData._resubmitTime < Time.time)
                     {
                         //Plugin.Log.Info("Re-firing existing continuous haptics");
                         __instance._vrPlatformHelper.TriggerHapticPulse(
-                            key, AutoStopTime, oldData._rumbleData.strength, oldData._rumbleData.frequency);
-                        oldData._autoStopTime = Time.time + AutoStopTime;
+                            key, oldData._resubmitDuration, oldData._rumbleData.strength, oldData._rumbleData.frequency);
+                        oldData._resubmitTime = Time.time + ResubmitTime;
                     }
 
                     continue;
@@ -229,10 +233,10 @@ namespace FrameHapticsFix
                 if (selected.strength > oldData._rumbleData.strength)
                 {
                     //Plugin.Log.Info("New continuous haptics win on strength");
-                    __instance._vrPlatformHelper.TriggerHapticPulse(
-                        key, AutoStopTime, selected.strength, selected.frequency);
                     RunningRumbleData.RunningRumbles[key] = new RunningRumbleData(
-                        selected, Time.time + StopTime, Time.time + AutoStopTime);
+                        selected, Time.time + StopTime, Time.time + ResubmitTime, ResubmitDuration);
+                    __instance._vrPlatformHelper.TriggerHapticPulse(
+                        key, ResubmitDuration, selected.strength, selected.frequency);
                     continue;
                 }
             }
