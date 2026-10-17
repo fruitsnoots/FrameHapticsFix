@@ -84,8 +84,8 @@ namespace FrameHapticsFix
     [HarmonyPatch(typeof(RumbleHapticFeedbackPlayer), "UpdateRumbles")]
     static class UpdateRumblesPatch
     {
-        public const float StopTime = (1f / 60f);
-        public const float ResubmitTime = (1f / 60f);
+        public const float StopDelay = (1f / 60f);
+        public const float ResubmitDelay = (1f / 60f);
         public const float ResubmitDuration = 0.2f;
         
         public static bool Prefix(RumbleHapticFeedbackPlayer __instance)
@@ -195,7 +195,7 @@ namespace FrameHapticsFix
                 {
                     //Plugin.Log.Info("New continuous haptics with nothing to override");
                     RunningRumbleData.RunningRumbles[key] = new RunningRumbleData(
-                        selected, Time.time + StopTime, Time.time + ResubmitTime, ResubmitDuration);
+                        selected, Time.time + StopDelay, Time.time + ResubmitDelay, ResubmitDuration);
                     __instance._vrPlatformHelper.TriggerHapticPulse(
                         key, ResubmitDuration, selected.strength, selected.frequency);
                     continue;
@@ -215,7 +215,7 @@ namespace FrameHapticsFix
                 // it as an update to the old data.
                 if (Math.Abs(selected.strength - oldData._rumbleData.strength) < 0.001f)
                 {
-                    oldData._stopTime = Time.time + StopTime;
+                    oldData._stopTime = Time.time + StopDelay;
                     
                     // Re-fire as needed
                     if (oldData._resubmitTime < Time.time)
@@ -223,7 +223,7 @@ namespace FrameHapticsFix
                         //Plugin.Log.Info("Re-firing existing continuous haptics");
                         __instance._vrPlatformHelper.TriggerHapticPulse(
                             key, oldData._resubmitDuration, oldData._rumbleData.strength, oldData._rumbleData.frequency);
-                        oldData._resubmitTime = Time.time + ResubmitTime;
+                        oldData._resubmitTime = Time.time + ResubmitDelay;
                     }
 
                     continue;
@@ -234,7 +234,7 @@ namespace FrameHapticsFix
                 {
                     //Plugin.Log.Info("New continuous haptics win on strength");
                     RunningRumbleData.RunningRumbles[key] = new RunningRumbleData(
-                        selected, Time.time + StopTime, Time.time + ResubmitTime, ResubmitDuration);
+                        selected, Time.time + StopDelay, Time.time + ResubmitDelay, ResubmitDuration);
                     __instance._vrPlatformHelper.TriggerHapticPulse(
                         key, ResubmitDuration, selected.strength, selected.frequency);
                     continue;

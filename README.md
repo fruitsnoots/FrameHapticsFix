@@ -1,27 +1,36 @@
 ﻿# FrameHapticsFix
 
-Steam Frame controller haptics are normally too long and inconsistent. This is because:
-- They get detected as knuckles controllers, which doubles the duration of every haptics preset
-- ~~Beat Saber restarts haptics via device.SendHapticImpulse very often, and the frame controllers
-  really don't like that.~~ I actually am not sure what's causing the early termination issue, but
-  apparently it needed fewer pulses getting sent to the haptics handler?
+**Use of HapticsTweaker (or Tweaks55) is recommended alongside this mod!**
 
-This mod attempts to fix both of those problems. Works on my machine, anyway.
+## What's this do?
 
-There are no toggles or UI/settings.
-If the mod is installed, the patches are
-applied. You’ll be able to tell the
-difference as soon as you hit a note.
+**TL;DR**: I've cleaned up haptics triggers to the best of my ability, so the Frame controllers should behave more
+consistently and actually behave in accordance with configurations by mods that adjust haptics.
 
-Compatible with Tweaks55 and HapticsTweaker (actually makes their settings work correctly).
+---
 
-*This mod has only been tested with 1.40.8 and 1.44.1.* ~~Based on my observations of 1.45.2 vanilla,
-it seems likely that this mod will be unnecessary in future versions of Beat Saber (Tweaks55 and
-HapticsTweaker will be enough on their own).~~ or not? maybe the controllers just need a firmware update
+Steam Frame controller haptics are normally too long and inconsistent. There's a few contributing factors
+that I've picked up on at this point:
+- The haptics player keeps sending new, changing impulse information to the controller-specific haptics handler
+  (the frame controllers get identified as Index Knuckles)
+- The Knuckles handlers attempt to double every input duration, but because of where it happens, each update
+  chops time off the remaining duration
+  - This causes some variability in terms of when haptics will end
+  - The Frame controllers also seem to dislike being provided these repeated, decreasing pulse durations
+
+To be honest, the Frame controllers are kind of touchy. They can't be given new haptics pulse information more
+than once every 1/80th of a second (and judging by default game behavior, the index controllers didn't like that
+either). Feedback can also sometimes behave unexpectedly, I which I *think* comes from the impulse durations
+including motor spin-up and spin-down profiles?
+
+*This mod has only been tested with 1.40.8 and 1.44.1.*
 
 ## Warnings/Notes
 
 - I've never made a beat saber mod before so sorry if my code sucks
-- This mod affects Knuckles haptics! Uninstall if you're not using the frame anymore.
-  - Poke me if you really need the toggle and I might learn to make one lol
-- Rapidly highlighting things in menu is a bit more haptically intense than by default
+- This mod affects Knuckles haptics!
+  - From my own testing, it doesn't seem to make them *worse*, but I don't have an enable toggle,
+    so if you don't want this mod to change those anymore, you'll need to just remove it
+- Rapidly highlighting things in menu is a bit more haptically intense than by default.
+  - The fix for this, I think, would be adding configuration options to an existing haptics adjustment mod to
+    reduce the intensity or duration of menu highlight triggers. None do this so far.

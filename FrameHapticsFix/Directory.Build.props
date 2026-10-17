@@ -7,7 +7,7 @@
     <PluginId>FrameHapticsFix</PluginId>
     <PluginName>FrameHapticsFix</PluginName>
     <Authors>fruitsnoots</Authors>
-    <Version>0.0.1</Version>
+    <Version>0.0.4</Version>
     <GameVersion>1.40.0</GameVersion>
     <Description>fix steam frame haptics</Description>
     <!--<PluginIcon></PluginIcon>-->
