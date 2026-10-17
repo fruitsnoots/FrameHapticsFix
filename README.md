@@ -25,7 +25,13 @@ including motor spin-up and spin-down profiles?
 
 *This mod has only been tested with 1.40.8 and 1.44.1.*
 
-## Warnings/Notes
+## Notes for Haptics Configurations
+
+If using HapticsTweaker, I've noticed a few things:
+- Clash and Arc strengths below ~40-50% can dull/mute haptics for notes that happen right afterwards
+- Chains seem to respond best to having the times/strengths of the head/links be about the same
+
+## Warnings/Other Notes
 
 - I've never made a beat saber mod before so sorry if my code sucks
 - This mod affects Knuckles haptics!
